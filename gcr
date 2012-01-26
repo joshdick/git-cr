@@ -1,0 +1,120 @@
+#!/bin/bash
+
+# gcr - Git Code Review
+# <https://github.com/joshdick/gcr>
+# Written by Josh Dick <http://joshdick.net>
+
+# Shows all commits in a Git branch that haven't been merged upstream,
+# as well as the files affected by those commits, then optionally
+# performs an interactive diff.
+
+# Run 'gcr -h' for help/usage information.
+
+# gcr is released under a Simplified BSD license.
+
+current_branch_name=`git name-rev --name-only HEAD 2> /dev/null`
+
+if [ $? -ne 0 ]; then
+  echo -e "\033[31mERROR:\033[00m `pwd` is not a Git repository."
+  exit 1
+fi
+
+category="me"
+
+while getopts ":h :a :u:" opt; do
+  case $opt in
+    h)
+      echo -e "USAGE: `basename $0` [options...]\n"
+      echo -e "By default (with no options provided), `basename $0` shows your own unmerged commits on the current branch.\n"
+      echo "Available options:"
+      echo -e "\t-u search_term\tShows unmerged commits on the current branch whose author contains search_term (case insensitive.)"
+      echo -e "\t-a\t\tShow all authors' unmerged commits on the current branch"
+      echo -e "\t-h\t\tShow this help/usage information"
+      exit 0
+      ;;
+    a)
+      category="all"
+      ;;
+    u)
+      category="search"
+      search_author=$OPTARG
+      ;;
+    \?)
+      echo -e "\033[31mERROR:\033[00m Invalid option: -$OPTARG" >&2
+      echo "Run '`basename $0` -h' for usage information." >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ $category = "all" ]]; then
+  echo -e "\n*** Showing commits from all authors. ***"
+  search_author=""
+elif [[ $category = "search" ]]; then
+  echo -e "\n*** Showing commits exclusively matching provided author $search_author ***"
+elif [[ $category = "me" ]]; then
+  git_user=`git config user.name`
+  echo -e "\n*** Showing commits exclusively from author $git_user. ***"
+  search_author=$git_user
+fi
+
+for commit_id in `git cherry -v origin/master | cut -d ' ' -f 2`
+do
+  commit_author=`git log --format=%an -n 1 $commit_id`
+  match=`echo $commit_author | grep -i "$search_author"`;
+  if [[ ${#match} > 0 ]]; then
+    commit_ids[${#commit_ids[@]}]=$commit_id
+  fi
+done
+
+if [ ${#commit_ids[@]} -eq 0 ]; then
+  echo -e "\nNo relevant unmerged commits on branch $current_branch_name."
+  echo "Exiting."
+  exit 0
+fi
+
+echo -e "\nRelevant unmerged commits on branch $current_branch_name:\n"
+
+for commit_id in ${commit_ids[@]}
+do
+  echo `git log --date=short --format="%h [%ad] (%an) %s" -n 1 $commit_id`
+done
+
+for commit_id in ${commit_ids[@]}
+do
+  for changed_file in `git diff --name-only $commit_id $commit_id~1`
+  do
+    all_changed_files="$all_changed_files\n$changed_file"
+  done
+done
+
+changed_files=`echo -e $all_changed_files | sed "/^$/d" | sort | uniq`
+
+changed_file_count=`echo "$changed_files" | wc -l | sed -e "s/^[ \t]*//"`
+
+if [ $changed_file_count -eq 0 ]; then
+  echo -e "\nNo files were changed in the above commit(s), so nothing to code review."
+  echo "Exiting."
+  exit 0
+fi
+
+echo -e "\nThe above commits affected the following $changed_file_count file(s):"
+echo -e "\n$changed_files\n"
+
+while true; do
+  echo "Start interactive diff for above files? [y/n]"
+  read yn
+  case $yn in
+    [Yy]* ) echo "Starting interactive diff for all files listed above..."; break;;
+    [Nn]* ) echo "Exiting."; exit;;
+    * ) echo "Please answer yes or no.";;
+  esac
+done
+
+for file in $changed_files
+do
+  echo "Starting interactive diff for $file..."
+  git difftool master -- $file
+done
+
+echo "Interactive diff complete!"
