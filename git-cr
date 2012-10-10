@@ -21,31 +21,55 @@ fi
 
 category="me"
 
-while getopts ":h :a :u:" opt; do
-  case $opt in
-    h)
-      echo -e "USAGE: `basename $0` [options...]\n"
+upstream="origin/master"
+upstreamSet=
+head="HEAD"
+
+while true; do
+  if [[ "$1" = "" ]]; then
+    break
+  fi
+
+  case "$1" in
+    -h)
+      echo -e "USAGE: `basename $0` [options...] [<upstream> [<head>]]\n"
       echo -e "By default (with no options provided), `basename $0` shows your own unmerged commits on the current branch.\n"
       echo "Available options:"
       echo -e "\t-u search_term\tShows unmerged commits on the current branch whose author contains search_term (case insensitive.)"
       echo -e "\t-a\t\tShow all authors' unmerged commits on the current branch"
       echo -e "\t-h\t\tShow this help/usage information"
+      echo -e "\t<upstream>\tUpstream branch to compare against; defaults to origin/master."
+      echo -e "\t<head>\t\tWorking branch; defaults to HEAD."
       exit 0
       ;;
-    a)
+    -a)
       category="all"
       ;;
-    u)
+    -u)
       category="search"
-      search_author=$OPTARG
+      search_author=$2
+      shift
       ;;
-    \?)
-      echo -e "\033[31mERROR:\033[00m Invalid option: -$OPTARG" >&2
+    -*)
+      echo -e "\033[31mERROR:\033[00m Invalid option: $1" >&2
       echo "Run '`basename $0` -h' for usage information." >&2
       exit 1
       ;;
+    *)
+      if [ ! $upstreamSet ]; then
+        upstreamSet=true
+        upstream=$1
+      else
+        head=$1
+      fi
+    ;;
   esac
+
+  shift
 done
+
+echo "Upstream: $upstream"
+echo "Head: $head"
 
 if [[ $category = "all" ]]; then
   echo -e "\n*** Showing commits from all authors. ***"
@@ -58,7 +82,7 @@ elif [[ $category = "me" ]]; then
   search_author=$git_user
 fi
 
-for commit_id in `git cherry -v origin/master | cut -d ' ' -f 2`
+for commit_id in `git cherry -v $upstream $head | cut -d ' ' -f 2`
 do
   commit_author=`git log --format=%an -n 1 $commit_id`
   match=`echo $commit_author | grep -i "$search_author"`;
@@ -114,7 +138,7 @@ done
 for file in $changed_files
 do
   echo "Starting interactive diff for $file..."
-  git difftool master -- $file
+  git difftool $upstream $head -- $file
 done
 
 echo "Interactive diff complete!"
